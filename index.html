@@ -81,7 +81,7 @@
   <div class="card">
     <div class="hd">Password Vault <span class="sub">stored in this browser · never uploaded anywhere</span></div>
     <div class="bd">
-      <div class="hint">Keep each cardholder's statement password here, then just drop any mix of HDFC and YES Bank files. For a <b>locked</b> file (HDFC, and some YES) the tool finds the stored password that opens it, and that identifies the cardholder. Files that <b>open without a password</b> (most YES Bank e-statements) are matched by the name in the filename. Either way it detects the bank and holder per file automatically. YES passwords are usually the DOB as <code>DDMMYYYY</code>; HDFC are the mailer codes (e.g. <code>TRUU7000</code>).</div>
+      <div class="hint">Add each cardholder's card number and password here, then just drop any mix of HDFC and YES Bank files — even the original bank filenames like <code>560103_1003…-678.pdf</code>. The tool identifies each statement by the <b>card number printed inside it</b> (matched to the numbers below), so it doesn't rely on filenames; a locked file also needs the stored password to open (YES = DOB as <code>DDMMYYYY</code>, HDFC = mailer code like <code>TRUU7000</code>). Card numbers with a blank password still get identified — they just can't be opened until the password is added.</div>
       <div class="toolbar">
         <button class="sm" id="addRow">+ Add cardholder</button>
         <button class="sm ghost" id="exportVault">Export vault (.json)</button>
@@ -164,16 +164,23 @@ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@
 
 /* ---------- Seed vault (only if empty): [name, bank, card, pw] ---------- */
 const SEED=[
-  // YES Bank — password is DOB DDMMYYYY
-  ['Skand Gupta','YES','','26051998'],
-  ['Nikunj Yadav','YES','','10081997'],
+  // YES Bank — [name, bank, card number, DOB password DDMMYYYY if known]
+  ['Skand Gupta','YES','5553 8235 4000 7674','26051998'],
+  ['D Prabu','YES','5553 8235 4000 6397',''],
+  ['Chinmay Singhvi','YES','5553 8235 4000 4053','08072024'],
+  ['Rakshith R','YES','5553 8235 4001 2643','28091999'],
+  ['Nikunj Yadav','YES','5553 8235 4000 6009','10081997'],
   ['Ankit Maurya','YES','','09091997'],
-  ['Rakshith R','YES','','28091999'],
-  ['Chinmay Singhvi','YES','','08072024'],
-  ['Nihit Jain','YES','','14051998'],
-  ['Tumati Saisri','YES','','05042000'],
-  ['Karan Khatri','YES','','17081998'],
-  ['Rohit Patidar','YES','','26061997'],
+  ['Deepak Kumar Yadav','YES','5553 8235 4002 4150',''],
+  ['Tumati Saisri','YES','5553 8235 4002 5942','05042000'],
+  ['Nihit Jain','YES','5553 8235 4002 0604','14051998'],
+  ['Ayush Kumar Agarwal','YES','5553 8235 4002 7583',''],
+  ['Saurabh Sanjay Thakare','YES','5553 8235 4001 2163',''],
+  ['Vempalli Rushi Kesava Reddy','YES','5553 8235 4001 0308',''],
+  ['Rohit Patidar','YES','5553 8235 4001 5364','26061997'],
+  ['Sarfaraz Mohammed','YES','5553 8235 4002 3418',''],
+  ['Karan Sunil Khatri','YES','5553 8235 4001 6255','17081998'],
+  ['Adarsh Kesari','YES','5553 8235 4002 8086',''],
   // HDFC — mailer password codes
   ['Lakshit Bansal','HDFC','4421 4500 0070 7000','TRUU7000'],
   ['Sumeet Mane','HDFC','4421 4500 0070 7414','TRUU7414'],
@@ -185,7 +192,7 @@ const SEED=[
   ['Nikunj G','HDFC','4639 1801 5062 0087','NIKU0087'],
   ['Aishwarya','HDFC','4639 1801 5061 8115','AISH8115'],
 ];
-const LS_KEY='atomgrid_card_vault_v2';
+const LS_KEY='atomgrid_card_vault_v3';
 let vault=[]; // [{name,bank,card,pw}]
 
 function loadVault(){
@@ -379,8 +386,12 @@ function detectBank(fullText){
   return '';
 }
 
-/* ---- card-number helpers (HDFC filenames expose first4 + last digits) ---- */
+/* ---- card-number helpers (identify by the number printed on the statement) ---- */
 function digitsOnly(s){return String(s||'').replace(/\D/g,'');}
+function last4(s){const d=digitsOnly(s);return d.length>=4?d.slice(-4):'';}
+function bodyMaskedCard(t){const m=t.match(/(\d{4})[Xx\*\s]{4,}(\d{4})/);return m?{last:m[2],full:m[1]+'XXXXXXXX'+m[2]}:null;}
+function vaultByCardLast4(l4,bank){ if(!l4) return null;
+  return (bank?vault.find(v=>v.bank===bank&&last4(v.card)===l4):null) || vault.find(v=>last4(v.card)===l4) || null; }
 function cardFragFromName(fn){const m=fn.match(/(\d{4})X+(\d{2,4})/i);return m?{first:m[1],last:m[2]}:null;}
 function cardMatchVault(frag,bank){
   if(!frag) return null;
@@ -497,15 +508,18 @@ document.getElementById('processBtn').addEventListener('click',async()=>{
       const {tcs,fullText}=await readDoc(res.doc);
       const bank=detectBank(fullText)||f.bank||'YES';
       f.bank=bank;
-      // identify the cardholder: by password only when the file was truly locked
-      let vrow = res.locked ? vault.find(v=>v.pw===res.pw) : null;
-      if(!vrow) vrow = matchVaultByName(nameFromFile(f.name),bank);      // else by filename
-      if(!vrow && bank==='HDFC') vrow = cardMatchVault(cardFragFromName(f.name),'HDFC'); // last resort
+      // identify cardholder — card number printed on the statement is the most reliable,
+      // and works regardless of how the file is named (originals arrive as codes, not names)
+      const masked=bodyMaskedCard(fullText);
+      let vrow = vaultByCardLast4(masked?masked.last:'', bank);            // 1) by card number in body
+      if(!vrow && res.locked) vrow = vault.find(v=>v.pw===res.pw);         // 2) by unlocking password
+      if(!vrow) vrow = matchVaultByName(nameFromFile(f.name),bank);        // 3) by filename
+      if(!vrow && bank==='HDFC') vrow = cardMatchVault(cardFragFromName(f.name),'HDFC'); // 4) filename card frag
       f.cardName = vrow ? vrow.name : nameFromFile(f.name);
       let txns=[], hdr;
       if(bank==='HDFC'){ tcs.forEach(tc=>txns=txns.concat(parseHdfcPage(tc))); hdr=hdfcHeader(fullText); }
       else            { tcs.forEach(tc=>txns=txns.concat(parseYesPage(tc)));  hdr=yesHeader(fullText); }
-      const cardNo=(vrow&&vrow.card)?vrow.card:hdr.card;
+      const cardNo=(vrow&&vrow.card)?vrow.card:(masked?masked.full:hdr.card);
       if(!txns.length){f.status='notx';}
       else{
         f.status=(bank==='HDFC')?'okprov':'ok';
