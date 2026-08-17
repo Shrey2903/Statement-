@@ -67,12 +67,26 @@
   .footnote{font-size:12px;color:var(--muted);margin-top:8px}
   .banner{border:1px solid #f0d9a8;background:#fdf6e7;color:#7a5a13;border-radius:8px;padding:10px 13px;font-size:12.5px;margin-bottom:12px}
   .banner b{color:#5f470f}
+  .hbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .hbtn{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.4);font-size:13px;padding:8px 14px;border-radius:7px;cursor:pointer;white-space:nowrap}
+  .hbtn:hover{background:rgba(255,255,255,.22)}
+  .overlay{position:fixed;inset:0;background:rgba(15,34,49,.5);display:flex;align-items:flex-start;justify-content:center;padding:56px 20px;z-index:50;overflow:auto}
+  .modal{background:var(--card);border-radius:12px;max-width:640px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.35);overflow:hidden}
+  .modal > .hd{background:var(--navy);color:#fff;padding:12px 16px;font-size:12.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+  .modal > .hd .sub{font-weight:400;text-transform:none;letter-spacing:0;color:#c3d2df;font-size:12px}
+  .modal .x{color:#fff;font-size:16px}
+  .subhead{font-size:12px;font-weight:600;color:var(--navy);margin-bottom:6px;text-transform:uppercase;letter-spacing:.4px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Card Statement Extractor</h1>
-  <p>Decrypt password-protected credit-card statements — YES Bank &amp; HDFC — and consolidate every transaction into one Excel sheet · Atomgrid Operations</p>
+  <div class="hbar">
+    <div>
+      <h1>Card Statement Extractor</h1>
+      <p>Decrypt password-protected credit-card statements — YES Bank &amp; HDFC — and consolidate every transaction into one Excel sheet · Atomgrid Operations</p>
+    </div>
+    <button id="openSettings" class="hbtn">⚙ Settings</button>
+  </div>
 </header>
 
 <div class="wrap">
@@ -105,6 +119,21 @@
     </div>
   </div>
 
+  <!-- SETTINGS (opened from header) -->
+  <div id="settingsOverlay" class="overlay" style="display:none">
+    <div class="modal">
+      <div class="hd"><span>Settings <span class="sub">stored in this browser only</span></span><button id="closeSettings" class="x" title="Close">✕</button></div>
+      <div class="bd">
+        <div class="subhead">AI extraction — image-based HDFC statements</div>
+        <div class="hint">HDFC statements are issued as flattened images with <b>no selectable text</b>, so their transactions are read with the Claude API (same approach as your PI/COA tools). YES Bank statements have real text and are always parsed locally — they never use the API. Your key is kept in this browser and sent only to <code>api.anthropic.com</code>. After each HDFC file the tool checks the extracted Dr/Cr totals against the statement's own Purchases/Payments figures and flags any mismatch.</div>
+        <div class="row">
+          <div style="flex:2;min-width:260px"><input type="password" id="apiKey" placeholder="Anthropic API key (sk-ant-…)"></div>
+          <div style="flex:1;min-width:160px"><input type="text" id="apiModel" placeholder="model"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- STATEMENTS -->
   <div class="card">
     <div class="hd">Statements</div>
@@ -133,7 +162,7 @@
     <div class="hd">Consolidated Ledger <span class="sub" id="resSub"></span></div>
     <div class="bd">
       <div class="banner" id="hdfcNote" style="display:none">
-        <b>HDFC extraction is provisional.</b> It was built without a sample HDFC statement, so verify the HDFC amounts against each statement's <b>Total Dues</b> before relying on them. Send one real HDFC statement PDF to calibrate it exactly (same as was done for YES Bank).
+        <b>HDFC statements are read by AI vision</b> (they're image-based with no text layer). Each file's extracted Dr/Cr totals are checked against the statement's own Purchases/Payments figures — a <span style="color:var(--warn)">✗</span> below means the totals didn't tie and that file needs a look. YES Bank files are parsed locally and aren't affected.
       </div>
       <div class="stat" id="stats"></div>
       <div class="toolbar">
@@ -423,6 +452,50 @@ async function readDoc(doc){
   return {tcs,fullText};
 }
 
+/* ---- AI vision extraction for image-based (HDFC) statements ---- */
+const AK='atomgrid_card_apikey', AM='atomgrid_card_model';
+const apiKeyEl=document.getElementById('apiKey'), apiModelEl=document.getElementById('apiModel');
+function loadApi(){ try{apiKeyEl.value=localStorage.getItem(AK)||'';}catch(e){} let m=''; try{m=localStorage.getItem(AM)||'';}catch(e){} apiModelEl.value=m||'claude-sonnet-4-5'; }
+apiKeyEl.addEventListener('input',()=>{try{localStorage.setItem(AK,apiKeyEl.value.trim());}catch(e){}});
+apiModelEl.addEventListener('input',()=>{try{localStorage.setItem(AM,apiModelEl.value.trim());}catch(e){}});
+
+async function pageToJpeg(doc,pageNum,scale){
+  const page=await doc.getPage(pageNum);
+  const viewport=page.getViewport({scale:scale||2});
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext:ctx,viewport}).promise;
+  return canvas.toDataURL('image/jpeg',0.85).split(',')[1];
+}
+const VISION_PROMPT=`You are reading an HDFC Bank credit-card statement (images of all pages). Extract EVERY row from the "Domestic Transactions" and "International Transactions" tables. Ignore ads, benefits, reward-point summaries, GST summary and the header/summary boxes.
+
+Return ONLY a JSON object — no prose, no markdown fences — with exactly this shape:
+{"cardholder":"","cardLast4":"","statementDate":"","dueDate":"","period":"","purchasesDebit":0,"paymentsCredits":0,"totalAmountDue":0,"transactions":[{"date":"DD/MM/YYYY","time":"HH:MM","description":"","foreign":"","amount":0,"type":"Dr"}]}
+
+Rules:
+- amount: the Rupee (INR) amount as a positive number, no symbol and no commas (e.g. 15.80, 203590.00). Read small values carefully — the currency symbol is NOT a digit.
+- type: "Cr" if it is a credit/payment (shown green with a leading "+", or AUTOPAY / PAYMENT / refund / reversal); otherwise "Dr".
+- foreign: for international rows, the foreign currency and amount as printed (e.g. "BRL 103.98"); "" if none.
+- description: the merchant text on the amount's row; exclude the date, time, currency symbol and the PI dot; keep any "(Ref# ...)".
+- Do NOT emit the "<NAME> [CKYC ID ...]" sub-header rows as transactions.
+- purchasesDebit = "PURCHASES/DEBIT (Current Billing Cycle)"; paymentsCredits = "PAYMENTS/CREDITS RECEIVED"; totalAmountDue = "TOTAL AMOUNT DUE"; numbers only.
+- Keep statement order.`;
+async function visionExtract(doc){
+  const key=(apiKeyEl.value||'').trim(); if(!key){const e=new Error('No API key');e.name='NoKey';throw e;}
+  const model=(apiModelEl.value||'claude-sonnet-4-5').trim();
+  const imgs=[];
+  for(let p=1;p<=doc.numPages;p++) imgs.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:await pageToJpeg(doc,p,2)}});
+  const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+    headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model,max_tokens:8000,messages:[{role:'user',content:[...imgs,{type:'text',text:VISION_PROMPT}]}]})});
+  if(!resp.ok){const t=await resp.text();const e=new Error(resp.status+' '+t.slice(0,300));e.name='ApiError';throw e;}
+  const data=await resp.json();
+  const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+  return JSON.parse(txt.replace(/```json/gi,'').replace(/```/g,'').trim());
+}
+
 /* ================= File handling ================= */
 let files=[]; // [{name, bytes, cardName, bank, pw, status}]
 const drop=document.getElementById('drop'), fileInput=document.getElementById('fileInput');
@@ -460,6 +533,9 @@ function pushFile(name,bytes){
 function statusPill(s){
   if(s==='pending') return '<span class="pill wait">ready</span>';
   if(s==='ok') return '<span class="pill ok">extracted</span>';
+  if(s==='okwarn') return '<span class="pill amber">extracted · check</span>';
+  if(s==='needkey') return '<span class="pill amber">needs API key</span>';
+  if(s==='aierr') return '<span class="pill err">AI error</span>';
   if(s==='okprov') return '<span class="pill amber">extracted*</span>';
   if(s==='empty') return '<span class="pill amber">empty file</span>';
   if(s==='notx') return '<span class="pill amber">no transactions</span>';
@@ -493,6 +569,14 @@ document.getElementById('resetBtn').addEventListener('click',()=>{files=[];rende
 
 /* ================= Process ================= */
 let ledger=[];
+function pushLedger(f,bank,cardNo,hdr,txns){
+  txns.forEach(t=>ledger.push({
+    cardholder:f.cardName, bank, card:cardNo, period:hdr.period,
+    stmtDate:hdr.stmtDate, dueDate:hdr.dueDate,
+    txnDate:t.date, details:t.details, category:t.category,
+    amount:t.amount, type:t.type
+  }));
+}
 document.getElementById('processBtn').addEventListener('click',async()=>{
   const btn=document.getElementById('processBtn'); btn.disabled=true; btn.textContent='Extracting…';
   ledger=[];
@@ -506,29 +590,46 @@ document.getElementById('processBtn').addEventListener('click',async()=>{
       if(!res){f.status='badpw';renderFiles();continue;}   // truly locked & no key matched
       f.pw=res.pw;
       const {tcs,fullText}=await readDoc(res.doc);
-      const bank=detectBank(fullText)||f.bank||'YES';
+      const hasText=fullText.replace(/\s/g,'').length>40;
+      const bank=detectBank(fullText)||(hasText?'YES':'HDFC')||f.bank||'YES';
       f.bank=bank;
-      // identify cardholder — card number printed on the statement is the most reliable,
-      // and works regardless of how the file is named (originals arrive as codes, not names)
-      const masked=bodyMaskedCard(fullText);
-      let vrow = vaultByCardLast4(masked?masked.last:'', bank);            // 1) by card number in body
-      if(!vrow && res.locked) vrow = vault.find(v=>v.pw===res.pw);         // 2) by unlocking password
-      if(!vrow) vrow = matchVaultByName(nameFromFile(f.name),bank);        // 3) by filename
-      if(!vrow && bank==='HDFC') vrow = cardMatchVault(cardFragFromName(f.name),'HDFC'); // 4) filename card frag
+      // identify cardholder — prefer the card number printed on the statement (works on any
+      // filename); for image-based HDFC there's no text, so fall back to password / filename
+      const masked=hasText?bodyMaskedCard(fullText):null;
+      let vrow = vaultByCardLast4(masked?masked.last:'', bank);
+      if(!vrow && res.locked) vrow = vault.find(v=>v.pw===res.pw);
+      if(!vrow) vrow = matchVaultByName(nameFromFile(f.name),bank);
+      if(!vrow && bank==='HDFC') vrow = cardMatchVault(cardFragFromName(f.name),'HDFC');
       f.cardName = vrow ? vrow.name : nameFromFile(f.name);
-      let txns=[], hdr;
-      if(bank==='HDFC'){ tcs.forEach(tc=>txns=txns.concat(parseHdfcPage(tc))); hdr=hdfcHeader(fullText); }
-      else            { tcs.forEach(tc=>txns=txns.concat(parseYesPage(tc)));  hdr=yesHeader(fullText); }
-      const cardNo=(vrow&&vrow.card)?vrow.card:(masked?masked.full:hdr.card);
-      if(!txns.length){f.status='notx';}
-      else{
-        f.status=(bank==='HDFC')?'okprov':'ok';
-        txns.forEach(t=>ledger.push({
-          cardholder:f.cardName, bank, card:cardNo, period:hdr.period,
-          stmtDate:hdr.stmtDate, dueDate:hdr.dueDate,
-          txnDate:t.date, details:t.details, category:t.category,
-          amount:t.amount, type:t.type
-        }));
+      f.recon=null;
+
+      if(bank==='YES' && hasText){
+        // YES Bank: real text → fast local parse (offline)
+        let txns=[]; tcs.forEach(tc=>txns=txns.concat(parseYesPage(tc)));
+        const hdr=yesHeader(fullText);
+        const cardNo=(vrow&&vrow.card)?vrow.card:(masked?masked.full:hdr.card);
+        pushLedger(f,bank,cardNo,hdr,txns);
+        f.status=txns.length?'ok':'notx';
+      }else{
+        // image-based (HDFC) → Claude vision
+        if(!(apiKeyEl.value||'').trim()){ f.status='needkey'; renderFiles(); continue; }
+        f.status='working'; renderFiles();
+        let obj;
+        try{ obj=await visionExtract(res.doc); }
+        catch(err){ f.status='aierr'; f.err=(err&&err.message)||(err&&err.name)||'error'; renderFiles(); continue; }
+        if((!f.cardName||f.cardName===nameFromFile(f.name))&&obj.cardholder) f.cardName=obj.cardholder;
+        const cardNo=(vrow&&vrow.card)?vrow.card:(obj.cardLast4?('XXXX '+obj.cardLast4):'');
+        const hdr={card:cardNo,period:obj.period||'',stmtDate:obj.statementDate||'',dueDate:obj.dueDate||''};
+        const txns=(obj.transactions||[]).map(t=>({
+          date:t.date||'', details:((t.foreign?('['+t.foreign+'] '):'')+(t.description||'')).trim(),
+          category:'', amount:String(t.amount), type:(t.type==='Cr'?'Cr':'Dr')}));
+        pushLedger(f,bank,cardNo,hdr,txns);
+        // reconciliation against the statement's own printed totals
+        let sd=0,sc=0; txns.forEach(t=>{const v=parseFloat(t.amount)||0; if(t.type==='Cr')sc+=v;else sd+=v;});
+        const okDr=obj.purchasesDebit?Math.abs(sd-obj.purchasesDebit)<1:null;
+        const okCr=obj.paymentsCredits?Math.abs(sc-obj.paymentsCredits)<1:null;
+        f.recon={sd,sc,pd:obj.purchasesDebit,pc:obj.paymentsCredits,okDr,okCr};
+        f.status=(okDr===false||okCr===false)?'okwarn':'ok';
       }
     }catch(err){
       f.status=(err&&err.name==='PasswordException')?'badpw':'error';
@@ -569,10 +670,21 @@ function renderResults(){
      <div><span class="k">Cardholders</span><span class="v">${holders.size}</span></div>
      <div><span class="k">Net Total (Rs.)</span><span class="v">${fmt(net)}</span></div>`;
   document.getElementById('resSub').textContent=ledger.length+' transactions';
-  const skipped=files.filter(f=>f.status!=='ok'&&f.status!=='okprov');
-  document.getElementById('skipMeta').innerHTML = skipped.length
-    ? skipped.map(f=>`<b>${esc(f.name)}</b>: ${f.status==='badpw'?'locked, no matching password in vault':f.status==='empty'?'empty file':f.status==='notx'?'no transactions found':'error'}`).join(' &nbsp;·&nbsp; ')
+  // reconciliation lines for AI-extracted (HDFC) files
+  const recons=files.filter(f=>f.recon).map(f=>{
+    const r=f.recon;
+    const dr=r.okDr===null?'':(r.okDr?'✓':'✗')+` debits ${fmt(r.sd)}${r.okDr?'':' vs '+fmt(r.pd)}`;
+    const cr=r.okCr===null?'':(r.okCr?'✓':'✗')+` credits ${fmt(r.sc)}${r.okCr?'':' vs '+fmt(r.pc)}`;
+    const bad=(r.okDr===false||r.okCr===false);
+    return `<span style="color:${bad?'var(--warn)':'var(--ok)'}"><b>${esc(f.cardName)}</b>: ${dr} · ${cr}</span>`;
+  });
+  const done=files.filter(f=>f.status==='ok'||f.status==='okwarn'||f.status==='okprov');
+  const skipped=files.filter(f=>!(['ok','okwarn','okprov'].includes(f.status)));
+  let msg = skipped.length
+    ? skipped.map(f=>`<b>${esc(f.name)}</b>: ${f.status==='badpw'?'locked, no matching password in vault':f.status==='needkey'?'HDFC image statement — add an API key in ⚙ Settings':f.status==='aierr'?('AI error — '+esc(f.err||'')):f.status==='empty'?'empty file':f.status==='notx'?'no transactions found':'error'}`).join(' &nbsp;·&nbsp; ')
     : 'All files extracted cleanly.';
+  if(recons.length) msg += '<br>'+recons.join(' &nbsp;·&nbsp; ');
+  document.getElementById('skipMeta').innerHTML=msg;
 }
 
 /* ================= Export ================= */
@@ -608,8 +720,15 @@ document.getElementById('exportCsv').addEventListener('click',()=>{
   dl(new Blob([XLSX.utils.sheet_to_csv(ws)],{type:'text/csv'}),'Card_Statements.csv');
 });
 
+/* ---------- Settings panel ---------- */
+const _ov=document.getElementById('settingsOverlay');
+document.getElementById('openSettings').addEventListener('click',()=>{_ov.style.display='flex';});
+document.getElementById('closeSettings').addEventListener('click',()=>{_ov.style.display='none';});
+_ov.addEventListener('click',e=>{if(e.target===_ov)_ov.style.display='none';});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')_ov.style.display='none';});
+
 /* ---------- init ---------- */
-loadVault(); renderVault();
+loadVault(); renderVault(); loadApi();
 </script>
 </body>
 </html>
