@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YES Bank Card Statement Extractor · Atomgrid</title>
+<title>Card Statement Extractor · Atomgrid</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -19,7 +19,7 @@
   header{background:linear-gradient(180deg,var(--navy),var(--navy-2));color:#fff;padding:22px 28px}
   header h1{margin:0;font-size:19px;font-weight:600;letter-spacing:.2px}
   header p{margin:4px 0 0;font-size:12.5px;color:#b9cbd9}
-  .wrap{max-width:1180px;margin:0 auto;padding:22px 28px 60px}
+  .wrap{max-width:1220px;margin:0 auto;padding:22px 28px 60px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:20px;overflow:hidden}
   .card > .hd{background:var(--navy);color:#fff;padding:11px 16px;font-size:12.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
   .card > .hd .sub{font-weight:400;text-transform:none;letter-spacing:0;color:#c3d2df;font-size:12px}
@@ -31,8 +31,9 @@
   button.ghost:hover{background:#eef3f7}
   button:disabled{opacity:.45;cursor:not-allowed}
   button.sm{padding:5px 10px;font-size:12px}
-  input[type=text],input[type=password]{font-family:var(--mono);font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);width:100%}
-  input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(47,143,191,.15)}
+  input[type=text],input[type=password],select{font-family:var(--mono);font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);width:100%}
+  select{font-family:var(--sans)}
+  input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(47,143,191,.15)}
   table{width:100%;border-collapse:collapse}
   th{background:var(--navy);color:#fff;font-size:11.5px;font-weight:600;text-align:left;padding:8px 10px;position:sticky;top:0;text-transform:uppercase;letter-spacing:.3px}
   td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13px}
@@ -47,13 +48,14 @@
   .pill.err{background:#fbe8e6;color:var(--warn)}
   .pill.wait{background:#eef3f7;color:var(--muted)}
   .pill.amber{background:#fdf3e0;color:var(--amber)}
+  .pill.bank{background:#e8eef4;color:var(--navy)}
   .amt{font-family:var(--mono);text-align:right;white-space:nowrap}
   .cr{color:var(--ok);font-weight:600}
   .num{font-family:var(--mono);color:var(--muted);font-size:12px}
   .meta{color:var(--muted);font-size:12px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
   .spacer{flex:1}
-  .scroll{max-height:440px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  .scroll{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:8px}
   .stat{display:flex;gap:22px;flex-wrap:wrap;padding:2px 2px 12px}
   .stat div span{display:block}
   .stat .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
@@ -63,12 +65,14 @@
   .filecell{font-family:var(--mono);font-size:12px;color:var(--ink)}
   code{font-family:var(--mono);background:#eef3f7;padding:1px 5px;border-radius:4px;font-size:12px}
   .footnote{font-size:12px;color:var(--muted);margin-top:8px}
+  .banner{border:1px solid #f0d9a8;background:#fdf6e7;color:#7a5a13;border-radius:8px;padding:10px 13px;font-size:12.5px;margin-bottom:12px}
+  .banner b{color:#5f470f}
 </style>
 </head>
 <body>
 <header>
-  <h1>YES Bank Card Statement Extractor</h1>
-  <p>Decrypt password-protected YES Bank credit-card statements and consolidate every transaction into one Excel sheet · Atomgrid Operations</p>
+  <h1>Card Statement Extractor</h1>
+  <p>Decrypt password-protected credit-card statements — YES Bank &amp; HDFC — and consolidate every transaction into one Excel sheet · Atomgrid Operations</p>
 </header>
 
 <div class="wrap">
@@ -77,7 +81,7 @@
   <div class="card">
     <div class="hd">Password Vault <span class="sub">stored in this browser · never uploaded anywhere</span></div>
     <div class="bd">
-      <div class="hint">Keep each cardholder's statement password here. Statements are matched to a password automatically by the name in the filename. Passwords for YES Bank statements are typically the cardholder's date of birth as <code>DDMMYYYY</code>.</div>
+      <div class="hint">Keep each cardholder's statement password here, then just drop any mix of HDFC and YES Bank files. For a <b>locked</b> file (HDFC, and some YES) the tool finds the stored password that opens it, and that identifies the cardholder. Files that <b>open without a password</b> (most YES Bank e-statements) are matched by the name in the filename. Either way it detects the bank and holder per file automatically. YES passwords are usually the DOB as <code>DDMMYYYY</code>; HDFC are the mailer codes (e.g. <code>TRUU7000</code>).</div>
       <div class="toolbar">
         <button class="sm" id="addRow">+ Add cardholder</button>
         <button class="sm ghost" id="exportVault">Export vault (.json)</button>
@@ -88,7 +92,13 @@
       </div>
       <div class="scroll">
         <table class="vault">
-          <thead><tr><th style="width:46%">Cardholder name (as per KYC)</th><th style="width:44%">Statement password</th><th style="width:10%"></th></tr></thead>
+          <thead><tr>
+            <th style="width:26%">Cardholder name</th>
+            <th style="width:12%">Bank</th>
+            <th style="width:28%">Card number (optional)</th>
+            <th style="width:24%">Password</th>
+            <th style="width:10%"></th>
+          </tr></thead>
           <tbody id="vaultBody"></tbody>
         </table>
       </div>
@@ -99,12 +109,12 @@
   <div class="card">
     <div class="hd">Statements</div>
     <div class="bd">
-      <div id="drop">Drop <b>PDF statements</b> or a <b>.zip</b> here — or <b>click to browse</b><br><span class="meta">multiple files supported</span></div>
+      <div id="drop">Drop <b>PDF statements</b> (HDFC or YES Bank) or a <b>.zip</b> here — or <b>click to browse</b><br><span class="meta">just upload everything · the tool detects the bank and cardholder for each file</span></div>
       <input type="file" id="fileInput" accept=".pdf,.zip" multiple hidden>
       <div id="fileArea" style="display:none;margin-top:14px">
         <div class="scroll">
           <table>
-            <thead><tr><th style="width:34%">File</th><th style="width:24%">Cardholder</th><th style="width:24%">Password</th><th style="width:18%">Status</th></tr></thead>
+            <thead><tr><th style="width:30%">File</th><th style="width:22%">Cardholder</th><th style="width:12%">Bank</th><th style="width:20%">Password</th><th style="width:16%">Status</th></tr></thead>
             <tbody id="fileBody"></tbody>
           </table>
         </div>
@@ -122,6 +132,9 @@
   <div class="card" id="resultCard" style="display:none">
     <div class="hd">Consolidated Ledger <span class="sub" id="resSub"></span></div>
     <div class="bd">
+      <div class="banner" id="hdfcNote" style="display:none">
+        <b>HDFC extraction is provisional.</b> It was built without a sample HDFC statement, so verify the HDFC amounts against each statement's <b>Total Dues</b> before relying on them. Send one real HDFC statement PDF to calibrate it exactly (same as was done for YES Bank).
+      </div>
       <div class="stat" id="stats"></div>
       <div class="toolbar">
         <button id="exportXlsx">Download Excel (one sheet)</button>
@@ -132,7 +145,7 @@
       <div class="scroll">
         <table>
           <thead><tr>
-            <th>Cardholder</th><th>Card No.</th><th>Statement Period</th><th>Stmt Date</th>
+            <th>Cardholder</th><th>Bank</th><th>Card No.</th><th>Statement Period</th><th>Stmt Date</th>
             <th>Due Date</th><th>Txn Date</th><th>Transaction Details</th><th>Merchant Category</th>
             <th style="text-align:right">Amount (Rs.)</th><th>Dr/Cr</th>
           </tr></thead>
@@ -149,49 +162,76 @@
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/legacy/build/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/legacy/build/pdf.worker.min.mjs';
 
-/* ---------- Seed vault from the team KYC list (only if empty) ---------- */
+/* ---------- Seed vault (only if empty): [name, bank, card, pw] ---------- */
 const SEED=[
-  ['Skand Gupta','26051998'],['Nikunj Yadav','10081997'],['Ankit Maurya','09091997'],
-  ['Rakshith R','28091999'],['Chinmay Singhvi','08072024'],['Nihit Jain','14051998'],
-  ['Tumati Saisri','05042000'],['Karan Khatri','17081998'],['Rohit Patidar','26061997'],
+  // YES Bank — password is DOB DDMMYYYY
+  ['Skand Gupta','YES','','26051998'],
+  ['Nikunj Yadav','YES','','10081997'],
+  ['Ankit Maurya','YES','','09091997'],
+  ['Rakshith R','YES','','28091999'],
+  ['Chinmay Singhvi','YES','','08072024'],
+  ['Nihit Jain','YES','','14051998'],
+  ['Tumati Saisri','YES','','05042000'],
+  ['Karan Khatri','YES','','17081998'],
+  ['Rohit Patidar','YES','','26061997'],
+  // HDFC — mailer password codes
+  ['Lakshit Bansal','HDFC','4421 4500 0070 7000','TRUU7000'],
+  ['Sumeet Mane','HDFC','4421 4500 0070 7414','TRUU7414'],
+  ['Nihit Jain','HDFC','4421 4500 0077 2871','TRUU2871'],
+  ['CP','HDFC','4639 1801 5062 2729','CHAN2729'],
+  ['Skand G','HDFC','4639 1801 5062 4584','SKAN2605'],
+  ['Piyush G','HDFC','4639 1801 5062 0129','PIYU0129'],
+  ['Raghu','HDFC','4639 1801 5071 8832','RAGH8832'],
+  ['Nikunj G','HDFC','4639 1801 5062 0087','NIKU0087'],
+  ['Aishwarya','HDFC','4639 1801 5061 8115','AISH8115'],
 ];
-const LS_KEY='atomgrid_yesbank_vault_v1';
-let vault=[]; // [{name,pw}]
+const LS_KEY='atomgrid_card_vault_v2';
+let vault=[]; // [{name,bank,card,pw}]
 
 function loadVault(){
-  try{const s=localStorage.getItem(LS_KEY); if(s){vault=JSON.parse(s); return;}}catch(e){}
-  vault=SEED.map(([name,pw])=>({name,pw}));
+  try{const s=localStorage.getItem(LS_KEY); if(s){vault=JSON.parse(s).map(normRow); return;}}catch(e){}
+  vault=SEED.map(([name,bank,card,pw])=>({name,bank,card,pw}));
 }
+function normRow(r){return {name:r.name||'',bank:(r.bank||'').toUpperCase()||'YES',card:r.card||'',pw:r.pw||r.password||''};}
 function saveVault(){ try{localStorage.setItem(LS_KEY,JSON.stringify(vault));}catch(e){} }
 
 /* ---------- Vault UI ---------- */
 const vaultBody=document.getElementById('vaultBody');
+function bankSelect(i,val){
+  const v=(val||'YES').toUpperCase();
+  return `<select data-i="${i}" data-f="bank">
+    <option value="YES"${v==='YES'?' selected':''}>YES Bank</option>
+    <option value="HDFC"${v==='HDFC'?' selected':''}>HDFC</option>
+  </select>`;
+}
 function renderVault(){
   vaultBody.innerHTML='';
   vault.forEach((row,i)=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="text" data-i="${i}" data-f="name" value="${esc(row.name)}" placeholder="e.g. Ankit Maurya"></td>
-      <td><input type="text" data-i="${i}" data-f="pw" value="${esc(row.pw)}" placeholder="DDMMYYYY"></td>
+    tr.innerHTML=`<td><input type="text" data-i="${i}" data-f="name" value="${esc(row.name)}" placeholder="e.g. Nihit Jain"></td>
+      <td>${bankSelect(i,row.bank)}</td>
+      <td><input type="text" data-i="${i}" data-f="card" value="${esc(row.card)}" placeholder="optional"></td>
+      <td><input type="text" data-i="${i}" data-f="pw" value="${esc(row.pw)}" placeholder="password"></td>
       <td style="text-align:center"><button class="x" data-del="${i}" title="Remove">✕</button></td>`;
     vaultBody.appendChild(tr);
   });
-  vaultBody.querySelectorAll('input').forEach(inp=>{
+  vaultBody.querySelectorAll('input,select').forEach(inp=>{
     inp.addEventListener('input',e=>{
       const i=+e.target.dataset.i, f=e.target.dataset.f;
-      vault[i][f]=e.target.value; saveVault(); refreshFileMatches();
+      vault[i][f]=e.target.value; saveVault();
     });
   });
   vaultBody.querySelectorAll('[data-del]').forEach(b=>{
-    b.addEventListener('click',e=>{vault.splice(+e.target.dataset.del,1);saveVault();renderVault();refreshFileMatches();});
+    b.addEventListener('click',e=>{vault.splice(+e.target.dataset.del,1);saveVault();renderVault();});
   });
 }
-document.getElementById('addRow').addEventListener('click',()=>{vault.push({name:'',pw:''});saveVault();renderVault();});
+document.getElementById('addRow').addEventListener('click',()=>{vault.push({name:'',bank:'HDFC',card:'',pw:''});saveVault();renderVault();});
 document.getElementById('clearVault').addEventListener('click',()=>{
-  if(confirm('Remove all saved passwords from this browser?')){vault=[];saveVault();renderVault();refreshFileMatches();}
+  if(confirm('Remove all saved passwords from this browser?')){vault=[];saveVault();renderVault();}
 });
 document.getElementById('exportVault').addEventListener('click',()=>{
   const blob=new Blob([JSON.stringify(vault,null,2)],{type:'application/json'});
-  dl(blob,'yesbank_password_vault.json');
+  dl(blob,'card_password_vault.json');
 });
 document.getElementById('importVault').addEventListener('click',()=>document.getElementById('vaultFile').click());
 document.getElementById('vaultFile').addEventListener('change',async e=>{
@@ -199,14 +239,14 @@ document.getElementById('vaultFile').addEventListener('change',async e=>{
   try{
     const arr=JSON.parse(await f.text());
     if(Array.isArray(arr)){
-      arr.forEach(r=>{
-        const name=(r.name||'').trim(), pw=(r.pw||r.password||'').trim(); if(!name) return;
-        const ex=vault.find(v=>norm(v.name)===norm(name));
-        if(ex) ex.pw=pw; else vault.push({name,pw});
+      arr.forEach(raw=>{
+        const r=normRow(raw); if(!r.name&&!r.pw) return;
+        const ex=vault.find(v=>norm(v.name)===norm(r.name)&&v.bank===r.bank);
+        if(ex){ex.pw=r.pw; if(r.card)ex.card=r.card;} else vault.push(r);
       });
-      saveVault();renderVault();refreshFileMatches();
+      saveVault();renderVault();
     }
-  }catch(err){alert('Could not read that file — expected a JSON list of {name, pw}.');}
+  }catch(err){alert('Could not read that file — expected a JSON list of {name, bank, card, pw}.');}
   e.target.value='';
 });
 
@@ -215,26 +255,24 @@ function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function norm(s){return String(s||'').toLowerCase().replace(/[^a-z0-9 ]/g,'').trim();}
 function firstToken(s){return norm(s).split(' ')[0]||'';}
 function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
-// Cardholder name from filename: strip " Yes Bank ..." tail and extension
-function nameFromFile(fn){
-  let n=fn.replace(/\.pdf$/i,'');
-  n=n.replace(/\s*yes\s*bank.*$/i,'').trim();
-  return n||fn.replace(/\.pdf$/i,'');
-}
-function matchVault(cardName){
-  const ft=firstToken(cardName);
-  let hit=vault.find(v=>norm(v.name)===norm(cardName));
-  if(!hit) hit=vault.find(v=>firstToken(v.name)===ft && ft);
-  if(!hit) hit=vault.find(v=>norm(v.name).startsWith(ft) && ft);
-  return hit||null;
+function nameFromFile(fn){let n=fn.replace(/\.pdf$/i,'');n=n.replace(/\s*yes\s*bank.*$/i,'').trim();return n||fn.replace(/\.pdf$/i,'');}
+function matchVaultByName(cardName,preferBank){
+  const ft=firstToken(cardName); if(!ft) return null;
+  const search=arr=>arr.find(v=>norm(v.name)===norm(cardName))
+    ||arr.find(v=>firstToken(v.name)===ft)
+    ||arr.find(v=>norm(v.name).startsWith(ft));
+  const pool=preferBank?vault.filter(v=>v.bank===preferBank):[];
+  return (pool.length?search(pool):null)||search(vault)||null;
 }
 
-/* ================= PARSER (validated against reference statements) ================= */
+/* ================= Shared parsing bits ================= */
 const DATE=/^\d{2}\/\d{2}\/\d{4}$/;
 const AMT_TYP=/^([\d,]+\.\d{2})\s*(Dr|Cr)?$/;
+const AMT_ONLY=/^[\d,]+\.\d{2}$/;
 function grab(t,re){const m=t.match(re);return m?m[1].trim():'';}
 
-function parsePage(tc){
+/* ---- YES Bank parser (validated against reference statements) ---- */
+function parseYesPage(tc){
   const words=tc.items.filter(it=>it.str&&it.str.trim()!=='')
     .map(it=>({str:it.str.trim(),x:it.transform[4],y:it.transform[5]}));
   let catX=null,detX=null,amtX=null;
@@ -284,27 +322,98 @@ function parsePage(tc){
   }
   return txns;
 }
-
-async function parseDoc(data,pw){
-  const doc=await pdfjsLib.getDocument({data,password:pw||''}).promise;
-  let fullText='',txns=[];
-  for(let p=1;p<=doc.numPages;p++){
-    const page=await doc.getPage(p);
-    const tc=await page.getTextContent();
-    fullText+=' '+tc.items.map(i=>i.str).join(' ');
-    txns=txns.concat(parsePage(tc));
-  }
-  const hdr={
+function yesHeader(fullText){
+  return {
     card:grab(fullText,/Card Number\s+(\w+X+\w+)/),
     period:grab(fullText,/(\d{2}\/\d{2}\/\d{4}\s*To\s*\d{2}\/\d{2}\/\d{4})/),
     stmtDate:grab(fullText,/Statement Date\s*:\s*(\d{2}\/\d{2}\/\d{4})/),
     dueDate:grab(fullText,/Payment Due Date:\s*(\d{2}\/\d{2}\/\d{4})/),
   };
-  return {hdr,txns};
+}
+
+/* ---- HDFC parser (PROVISIONAL — calibrate against a real statement) ----
+   Heuristic: a transaction line starts (left) with a DD/MM/YYYY date and ends
+   (right) with a decimal amount; HDFC marks credits with a trailing "Cr".
+   Summary/header lines are skipped by keyword. Refine once a sample is seen. */
+const HDFC_SKIP=/statement date|payment due|total dues|minimum amount|amount due|credit limit|available|opening balance|finance charge|reward point|past dues|cash limit|gst|interest/i;
+function parseHdfcPage(tc){
+  const words=tc.items.filter(it=>it.str&&it.str.trim()!=='')
+    .map(it=>({str:it.str.trim(),x:it.transform[4],y:it.transform[5]}));
+  const lm={};
+  for(const w of words){const k=Math.round(w.y);(lm[k]=lm[k]||[]).push(w);}
+  const ys=Object.keys(lm).map(Number).sort((a,b)=>b-a);
+  const txns=[];
+  for(const y of ys){
+    const ln=lm[y].sort((a,b)=>a.x-b.x);
+    const raw=ln.map(w=>w.str).join(' ');
+    if(HDFC_SKIP.test(raw)) continue;
+    let di=ln.findIndex(w=>DATE.test(w.str));
+    if(di<0||di>1) continue;                 // date must be at the left edge
+    let ai=-1;
+    for(let k=ln.length-1;k>di;k--){ if(AMT_ONLY.test(ln[k].str)){ai=k;break;} }
+    if(ai<0) continue;
+    const amt=ln[ai].str;
+    let typ='Dr';
+    for(let k=ai;k<ln.length;k++){ if(/^cr$/i.test(ln[k].str)) typ='Cr'; }
+    let mid=ln.slice(di+1,ai).map(w=>w.str).filter(s=>!/^cr$/i.test(s));
+    while(mid.length && /^\d{1,4}$/.test(mid[mid.length-1])) mid.pop(); // drop reward-points integer
+    const details=mid.join(' ').replace(/\s+/g,' ').trim();
+    if(!details) continue;
+    txns.push({date:ln[di].str,details,category:'',amount:amt,type:typ});
+  }
+  return txns;
+}
+function hdfcHeader(fullText){
+  return {
+    card:grab(fullText,/(\d{4}\s?X+\s?X+\s?[X\d]{2,4})/i),
+    period:grab(fullText,/(\d{2}\/\d{2}\/\d{4}\s*(?:To|to|-)\s*\d{2}\/\d{2}\/\d{4})/),
+    stmtDate:grab(fullText,/Statement Date[:\s]+(\d{2}\/\d{2}\/\d{4})/i),
+    dueDate:grab(fullText,/Payment Due Date[:\s]+(\d{2}\/\d{2}\/\d{4})/i),
+  };
+}
+
+function detectBank(fullText){
+  if(/YES\s*BANK/i.test(fullText)) return 'YES';
+  if(/HDFC/i.test(fullText)) return 'HDFC';
+  if(/Merchant Category/i.test(fullText)) return 'YES';
+  return '';
+}
+
+/* ---- card-number helpers (HDFC filenames expose first4 + last digits) ---- */
+function digitsOnly(s){return String(s||'').replace(/\D/g,'');}
+function cardFragFromName(fn){const m=fn.match(/(\d{4})X+(\d{2,4})/i);return m?{first:m[1],last:m[2]}:null;}
+function cardMatchVault(frag,bank){
+  if(!frag) return null;
+  return vault.find(v=>{ if(bank&&v.bank!==bank) return false; const d=digitsOnly(v.card);
+    return d && d.slice(0,4)===frag.first && d.slice(-frag.last.length)===frag.last; })||null;
+}
+
+/* ---- Open a doc, adapting to how each PDF is protected ----
+   Many statements are owner-locked only and open with ANY password (so the
+   password can't tell us who they belong to). Others need a real user password.
+   Strategy: try to open with no password first; if that works the file isn't
+   user-locked (identify it some other way). Only if it refuses do we hunt for
+   the password that opens it — and THAT uniquely identifies the cardholder. */
+async function openAny(bytes,candidates){
+  try{ const doc=await pdfjsLib.getDocument({data:bytes.slice(0),password:''}).promise; return {doc,pw:'',locked:false}; }
+  catch(e){ if(!(e&&e.name==='PasswordException')) throw e; }
+  for(const pw of candidates){ if(!pw) continue;
+    try{ const doc=await pdfjsLib.getDocument({data:bytes.slice(0),password:pw}).promise; return {doc,pw,locked:true}; }
+    catch(e){ if(e&&e.name==='PasswordException') continue; throw e; }
+  }
+  return null;
+}
+async function readDoc(doc){
+  const tcs=[]; let fullText='';
+  for(let p=1;p<=doc.numPages;p++){
+    const tc=await (await doc.getPage(p)).getTextContent();
+    tcs.push(tc); fullText+=' '+tc.items.map(i=>i.str).join(' ');
+  }
+  return {tcs,fullText};
 }
 
 /* ================= File handling ================= */
-let files=[]; // [{name, bytes, cardName, pw, status}]
+let files=[]; // [{name, bytes, cardName, bank, pw, status}]
 const drop=document.getElementById('drop'), fileInput=document.getElementById('fileInput');
 const fileArea=document.getElementById('fileArea'), fileBody=document.getElementById('fileBody');
 
@@ -334,20 +443,16 @@ async function addFiles(list){
   renderFiles();
 }
 function pushFile(name,bytes){
-  const cardName=nameFromFile(name);
-  const m=matchVault(cardName);
-  files.push({name,bytes,cardName:(m?m.name:cardName),pw:(m?m.pw:''),status:'pending'});
-}
-function refreshFileMatches(){
-  files.forEach(f=>{ if(f.status==='pending'||f.status==='badpw'){const m=matchVault(f.cardName); if(m)f.pw=m.pw;} });
-  renderFiles();
+  const guess=matchVaultByName(nameFromFile(name)); // filename hint only
+  files.push({name,bytes,cardName:(guess?guess.name:nameFromFile(name)),bank:(guess?guess.bank:''),pw:(guess?guess.pw:''),status:'pending'});
 }
 function statusPill(s){
   if(s==='pending') return '<span class="pill wait">ready</span>';
   if(s==='ok') return '<span class="pill ok">extracted</span>';
+  if(s==='okprov') return '<span class="pill amber">extracted*</span>';
   if(s==='empty') return '<span class="pill amber">empty file</span>';
   if(s==='notx') return '<span class="pill amber">no transactions</span>';
-  if(s==='badpw') return '<span class="pill err">wrong password</span>';
+  if(s==='badpw') return '<span class="pill err">locked · no key</span>';
   if(s==='working') return '<span class="pill wait">working…</span>';
   return '<span class="pill err">error</span>';
 }
@@ -360,7 +465,8 @@ function renderFiles(){
     const empty=f.bytes.length===0;
     tr.innerHTML=`<td class="filecell">${esc(f.name)}${empty?' <span class="pill amber">0 bytes</span>':''}</td>
       <td><input type="text" data-i="${i}" data-f="cardName" value="${esc(f.cardName)}"></td>
-      <td><input type="text" data-i="${i}" data-f="pw" value="${esc(f.pw)}" placeholder="password"></td>
+      <td>${f.bank?`<span class="pill bank">${esc(f.bank)}</span>`:'<span class="meta">auto</span>'}</td>
+      <td><input type="text" data-i="${i}" data-f="pw" value="${esc(f.pw)}" placeholder="auto-detected"></td>
       <td>${statusPill(empty?'empty':f.status)}</td>`;
     fileBody.appendChild(tr);
   });
@@ -368,13 +474,6 @@ function renderFiles(){
     inp.addEventListener('input',e=>{
       const i=+e.target.dataset.i, fld=e.target.dataset.f;
       files[i][fld]=e.target.value;
-      if(fld==='pw'){ // sync back into the vault for this cardholder
-        const cn=files[i].cardName.trim(); if(cn){
-          let v=vault.find(x=>norm(x.name)===norm(cn));
-          if(v) v.pw=e.target.value; else vault.push({name:cn,pw:e.target.value});
-          saveVault(); renderVault();
-        }
-      }
     });
   });
   document.getElementById('fileMeta').textContent=files.length+' file(s) loaded';
@@ -382,20 +481,36 @@ function renderFiles(){
 document.getElementById('resetBtn').addEventListener('click',()=>{files=[];renderFiles();document.getElementById('resultCard').style.display='none';});
 
 /* ================= Process ================= */
-let ledger=[]; // consolidated rows
+let ledger=[];
 document.getElementById('processBtn').addEventListener('click',async()=>{
   const btn=document.getElementById('processBtn'); btn.disabled=true; btn.textContent='Extracting…';
   ledger=[];
+  const allPw=vault.map(v=>v.pw).filter(Boolean);
   for(const f of files){
     if(f.bytes.length===0){f.status='empty';renderFiles();continue;}
     f.status='working';renderFiles();
     try{
-      const {hdr,txns}=await parseDoc(f.bytes.slice(0),f.pw);
+      const candidates=[...new Set([f.pw, ...allPw].filter(Boolean))];
+      const res=await openAny(f.bytes,candidates);
+      if(!res){f.status='badpw';renderFiles();continue;}   // truly locked & no key matched
+      f.pw=res.pw;
+      const {tcs,fullText}=await readDoc(res.doc);
+      const bank=detectBank(fullText)||f.bank||'YES';
+      f.bank=bank;
+      // identify the cardholder: by password only when the file was truly locked
+      let vrow = res.locked ? vault.find(v=>v.pw===res.pw) : null;
+      if(!vrow) vrow = matchVaultByName(nameFromFile(f.name),bank);      // else by filename
+      if(!vrow && bank==='HDFC') vrow = cardMatchVault(cardFragFromName(f.name),'HDFC'); // last resort
+      f.cardName = vrow ? vrow.name : nameFromFile(f.name);
+      let txns=[], hdr;
+      if(bank==='HDFC'){ tcs.forEach(tc=>txns=txns.concat(parseHdfcPage(tc))); hdr=hdfcHeader(fullText); }
+      else            { tcs.forEach(tc=>txns=txns.concat(parseYesPage(tc)));  hdr=yesHeader(fullText); }
+      const cardNo=(vrow&&vrow.card)?vrow.card:hdr.card;
       if(!txns.length){f.status='notx';}
       else{
-        f.status='ok';
+        f.status=(bank==='HDFC')?'okprov':'ok';
         txns.forEach(t=>ledger.push({
-          cardholder:f.cardName, card:hdr.card, period:hdr.period,
+          cardholder:f.cardName, bank, card:cardNo, period:hdr.period,
           stmtDate:hdr.stmtDate, dueDate:hdr.dueDate,
           txnDate:t.date, details:t.details, category:t.category,
           amount:t.amount, type:t.type
@@ -416,16 +531,17 @@ function fmt(n){ return n==null?'':n.toLocaleString('en-IN',{minimumFractionDigi
 function renderResults(){
   const card=document.getElementById('resultCard');
   if(!ledger.length){card.style.display='none';
-    if(files.some(f=>f.status==='badpw')) alert('No transactions extracted. Check the flagged passwords.');
+    if(files.some(f=>f.status==='badpw')) alert('No transactions extracted. Some files had no matching password in the vault.');
     return;}
   card.style.display='block';
   const resBody=document.getElementById('resBody'); resBody.innerHTML='';
-  let net=0, holders=new Set();
+  let net=0, holders=new Set(), hasHdfc=false;
   ledger.forEach(r=>{
-    holders.add(r.cardholder);
+    holders.add(r.cardholder); if(r.bank==='HDFC') hasHdfc=true;
     const n=toNum(r.amount,r.type); if(n!=null)net+=n;
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${esc(r.cardholder)}</td><td class="num">${esc(r.card)}</td>
+    tr.innerHTML=`<td>${esc(r.cardholder)}</td><td><span class="pill bank">${esc(r.bank)}</span></td>
+      <td class="num">${esc(r.card)}</td>
       <td class="num">${esc(r.period)}</td><td class="num">${esc(r.stmtDate)}</td>
       <td class="num">${esc(r.dueDate)}</td><td class="num">${esc(r.txnDate)}</td>
       <td>${esc(r.details)}</td><td>${esc(r.category)}</td>
@@ -433,23 +549,24 @@ function renderResults(){
       <td class="${r.type==='Cr'?'cr':''}">${esc(r.type)}</td>`;
     resBody.appendChild(tr);
   });
+  document.getElementById('hdfcNote').style.display=hasHdfc?'block':'none';
   document.getElementById('stats').innerHTML=
     `<div><span class="k">Transactions</span><span class="v">${ledger.length}</span></div>
      <div><span class="k">Cardholders</span><span class="v">${holders.size}</span></div>
      <div><span class="k">Net Total (Rs.)</span><span class="v">${fmt(net)}</span></div>`;
   document.getElementById('resSub').textContent=ledger.length+' transactions';
-  const skipped=files.filter(f=>f.status!=='ok');
+  const skipped=files.filter(f=>f.status!=='ok'&&f.status!=='okprov');
   document.getElementById('skipMeta').innerHTML = skipped.length
-    ? skipped.map(f=>`<b>${esc(f.name)}</b>: ${f.status==='badpw'?'wrong password':f.status==='empty'?'empty file':f.status==='notx'?'no transactions':'error'}`).join(' &nbsp;·&nbsp; ')
+    ? skipped.map(f=>`<b>${esc(f.name)}</b>: ${f.status==='badpw'?'locked, no matching password in vault':f.status==='empty'?'empty file':f.status==='notx'?'no transactions found':'error'}`).join(' &nbsp;·&nbsp; ')
     : 'All files extracted cleanly.';
 }
 
 /* ================= Export ================= */
-const COLS=['Cardholder','Card Number','Statement Period','Statement Date','Payment Due Date',
+const COLS=['Cardholder','Bank','Card Number','Statement Period','Statement Date','Payment Due Date',
             'Txn Date','Transaction Details','Merchant Category','Amount (Rs.)','Dr/Cr'];
 function ledgerAOA(){
   const aoa=[COLS];
-  ledger.forEach(r=>aoa.push([r.cardholder,r.card,r.period,r.stmtDate,r.dueDate,
+  ledger.forEach(r=>aoa.push([r.cardholder,r.bank,r.card,r.period,r.stmtDate,r.dueDate,
     r.txnDate,r.details,r.category,toNum(r.amount,r.type),r.type]));
   return aoa;
 }
@@ -458,23 +575,23 @@ document.getElementById('exportXlsx').addEventListener('click',()=>{
   const aoa=ledgerAOA();
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   const n=ledger.length;
-  // number format on amount column (I) + net total row
-  for(let r=1;r<=n;r++){const c=XLSX.utils.encode_cell({r,c:8}); if(ws[c]&&ws[c].v!=null){ws[c].t='n';ws[c].z='#,##0.00';}}
+  const AMT_C=9; // amount column index (J)
+  for(let r=1;r<=n;r++){const c=XLSX.utils.encode_cell({r,c:AMT_C}); if(ws[c]&&ws[c].v!=null){ws[c].t='n';ws[c].z='#,##0.00';}}
   const totRow=n+2;
-  ws[XLSX.utils.encode_cell({r:totRow,c:7})]={t:'s',v:'Net Total (Rs.)'};
-  ws[XLSX.utils.encode_cell({r:totRow,c:8})]={t:'n',f:`SUM(I2:I${n+1})`,z:'#,##0.00'};
-  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:totRow,c:9}});
-  ws['!cols']=[{wch:18},{wch:20},{wch:24},{wch:12},{wch:12},{wch:11},{wch:52},{wch:22},{wch:14},{wch:6}];
-  ws['!autofilter']={ref:`A1:J${n+1}`};
+  ws[XLSX.utils.encode_cell({r:totRow,c:AMT_C-1})]={t:'s',v:'Net Total (Rs.)'};
+  ws[XLSX.utils.encode_cell({r:totRow,c:AMT_C})]={t:'n',f:`SUM(J2:J${n+1})`,z:'#,##0.00'};
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:totRow,c:10}});
+  ws['!cols']=[{wch:18},{wch:7},{wch:22},{wch:24},{wch:12},{wch:12},{wch:11},{wch:52},{wch:22},{wch:14},{wch:6}];
+  ws['!autofilter']={ref:`A1:K${n+1}`};
   ws['!freeze']={xSplit:0,ySplit:1};
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Card Statements');
-  XLSX.writeFile(wb,'YES_Bank_Card_Statements_Consolidated.xlsx');
+  XLSX.writeFile(wb,'Card_Statements_Consolidated.xlsx');
 });
 document.getElementById('exportCsv').addEventListener('click',()=>{
   if(!ledger.length) return;
   const ws=XLSX.utils.aoa_to_sheet(ledgerAOA());
-  dl(new Blob([XLSX.utils.sheet_to_csv(ws)],{type:'text/csv'}),'YES_Bank_Card_Statements.csv');
+  dl(new Blob([XLSX.utils.sheet_to_csv(ws)],{type:'text/csv'}),'Card_Statements.csv');
 });
 
 /* ---------- init ---------- */
