@@ -482,18 +482,50 @@ Rules:
 - Do NOT emit the "<NAME> [CKYC ID ...]" sub-header rows as transactions.
 - purchasesDebit = "PURCHASES/DEBIT (Current Billing Cycle)"; paymentsCredits = "PAYMENTS/CREDITS RECEIVED"; totalAmountDue = "TOTAL AMOUNT DUE"; numbers only.
 - Keep statement order.`;
+function extractJson(txt){
+  let s=txt.replace(/```json/gi,'').replace(/```/g,'').trim();
+  try{return JSON.parse(s);}catch(e){}
+  const i=s.indexOf('{'), j=s.lastIndexOf('}');      // tolerate stray prose around the JSON
+  if(i>=0&&j>i){ try{return JSON.parse(s.slice(i,j+1));}catch(e){} }
+  const err=new Error('could not parse model output: '+s.slice(0,160)); err.name='ParseError'; throw err;
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function callApi(body,key){
+  let lastErr;
+  for(let attempt=0;attempt<5;attempt++){                 // retry transient failures with backoff
+    if(attempt) await sleep(1500*attempt);
+    let resp;
+    try{
+      resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+        headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify(body)});
+    }catch(netErr){ lastErr=new Error('network error reaching api.anthropic.com'); lastErr.name='NetworkError'; continue; }
+    if(resp.ok) return await resp.json();
+    const t=await resp.text();
+    if([408,409,429,500,502,503,529].includes(resp.status)){               // busy / rate limited → wait and retry
+      const ra=parseFloat(resp.headers.get('retry-after'));                // honour server's cool-down if given
+      if(ra>0) await sleep(Math.min(ra*1000,10000));
+      lastErr=new Error(resp.status+(resp.status===429?' rate limited':' busy')+' — '+t.replace(/\s+/g,' ').slice(0,140)); lastErr.name='ApiBusy'; continue;
+    }
+    const e=new Error(resp.status+' '+t.replace(/\s+/g,' ').slice(0,260)); e.name='ApiError'; throw e;   // e.g. 401 bad key, 400 bad model — don't retry
+  }
+  throw lastErr||new Error('API still busy after retries — try again in a moment');
+}
 async function visionExtract(doc){
   const key=(apiKeyEl.value||'').trim(); if(!key){const e=new Error('No API key');e.name='NoKey';throw e;}
   const model=(apiModelEl.value||'claude-sonnet-4-5').trim();
   const imgs=[];
   for(let p=1;p<=doc.numPages;p++) imgs.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:await pageToJpeg(doc,p,2)}});
-  const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
-    headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model,max_tokens:8000,messages:[{role:'user',content:[...imgs,{type:'text',text:VISION_PROMPT}]}]})});
-  if(!resp.ok){const t=await resp.text();const e=new Error(resp.status+' '+t.slice(0,300));e.name='ApiError';throw e;}
-  const data=await resp.json();
-  const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
-  return JSON.parse(txt.replace(/```json/gi,'').replace(/```/g,'').trim());
+  const body={model,max_tokens:16000,messages:[{role:'user',content:[...imgs,{type:'text',text:VISION_PROMPT}]}]};
+  let lastErr;
+  for(let tryn=0;tryn<2;tryn++){                            // one extra attempt if the model's output isn't usable JSON
+    const data=await callApi(body,key);                    // (callApi already retried any transient HTTP errors)
+    if(data.stop_reason==='max_tokens'){const e=new Error('response hit the token limit (statement too long)');e.name='Truncated';throw e;}
+    const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+    if(!txt.trim()){ lastErr=new Error('empty response from model'); continue; }
+    try{ return extractJson(txt); }catch(pe){ lastErr=pe; }
+  }
+  throw lastErr||new Error('extraction failed');
 }
 
 /* ================= File handling ================= */
@@ -504,8 +536,8 @@ const fileArea=document.getElementById('fileArea'), fileBody=document.getElement
 drop.addEventListener('click',()=>fileInput.click());
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
 drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
-drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');addFiles(e.dataTransfer.files);});
-fileInput.addEventListener('change',e=>{addFiles(e.target.files);e.target.value='';});
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');addFiles(Array.from(e.dataTransfer.files));});
+fileInput.addEventListener('change',e=>{const picked=Array.from(e.target.files);e.target.value='';addFiles(picked);});
 
 async function addFiles(list){
   for(const f of list){
@@ -554,7 +586,7 @@ function renderFiles(){
       <td><input type="text" data-i="${i}" data-f="cardName" value="${esc(f.cardName)}"></td>
       <td>${f.bank?`<span class="pill bank">${esc(f.bank)}</span>`:'<span class="meta">auto</span>'}</td>
       <td><input type="text" data-i="${i}" data-f="pw" value="${esc(f.pw)}" placeholder="auto-detected"></td>
-      <td>${statusPill(empty?'empty':f.status)}</td>`;
+      <td${f.err?` title="${esc(f.err)}"`:''}>${statusPill(empty?'empty':f.status)}${(f.status==='aierr'&&f.err)?`<div class="meta" style="color:var(--warn);font-size:11px;margin-top:4px;max-width:240px;white-space:normal">${esc(f.err)}</div>`:''}</td>`;
     fileBody.appendChild(tr);
   });
   fileBody.querySelectorAll('input').forEach(inp=>{
@@ -579,7 +611,7 @@ function pushLedger(f,bank,cardNo,hdr,txns){
 }
 document.getElementById('processBtn').addEventListener('click',async()=>{
   const btn=document.getElementById('processBtn'); btn.disabled=true; btn.textContent='Extracting…';
-  ledger=[];
+  ledger=[]; let aiCalls=0;
   const allPw=vault.map(v=>v.pw).filter(Boolean);
   for(const f of files){
     if(f.bytes.length===0){f.status='empty';renderFiles();continue;}
@@ -614,6 +646,7 @@ document.getElementById('processBtn').addEventListener('click',async()=>{
         // image-based (HDFC) → Claude vision
         if(!(apiKeyEl.value||'').trim()){ f.status='needkey'; renderFiles(); continue; }
         f.status='working'; renderFiles();
+        if(aiCalls++) await sleep(600);          // space out back-to-back API calls
         let obj;
         try{ obj=await visionExtract(res.doc); }
         catch(err){ f.status='aierr'; f.err=(err&&err.message)||(err&&err.name)||'error'; renderFiles(); continue; }
